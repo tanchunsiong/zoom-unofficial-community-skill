@@ -1,8 +1,8 @@
 # Zoom Unofficial Community Skill
 
-A community-built [Clawdbot](https://github.com/clawdbot/clawdbot) skill for interacting with Zoom's REST API — manage meetings, recordings, team chat, AI meeting summaries, and more.
+A Python CLI for interacting with Zoom's REST API — manage meetings, recordings, team chat, AI meeting summaries, and more. Works standalone or as a skill for any AI agent.
 
-> ⚠️ **Unofficial** — This skill is not affiliated with or endorsed by Zoom Video Communications.
+> **Unofficial** — This skill is not affiliated with or endorsed by Zoom Video Communications.
 
 ## Features
 
@@ -15,15 +15,10 @@ A community-built [Clawdbot](https://github.com/clawdbot/clawdbot) skill for int
 
 ## Quick Start
 
-### 1. Install the skill
+### 1. Clone the repo
 
 ```bash
-clawdhub install zoom-unofficial-community-skill
-```
-
-Or clone manually:
-```bash
-git clone https://github.com/tanchunsiong/zoom-unofficial-community-skill.git skills/zoom
+git clone https://github.com/tanchunsiong/zoom-unofficial-community-skill.git
 ```
 
 ### 2. Install dependencies
