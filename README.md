@@ -6,12 +6,12 @@ A community-built [Clawdbot](https://github.com/clawdbot/clawdbot) skill for int
 
 ## Features
 
-- 📅 **Meetings** — List, create, update, delete, and view meeting details
-- 🎥 **Recordings** — List, download, and delete cloud recordings
-- 🤖 **AI Summaries** — Retrieve AI Companion meeting summaries
-- 💬 **Team Chat** — Send messages, DMs, list channels and contacts
-- 👤 **Users** — View profiles and list account users
-- 📞 **Phone** — View call logs (requires Zoom Phone)
+- **Meetings** — List, create, update, delete, and view meeting details
+- **Recordings** — List, download, and delete cloud recordings
+- **AI Summaries** — Retrieve AI Companion meeting summaries
+- **Team Chat** — Send messages, DMs, list channels and contacts
+- **Users** — View profiles and list account users
+- **Phone** — View call logs (requires Zoom Phone)
 
 ## Quick Start
 
