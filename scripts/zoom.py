@@ -192,12 +192,21 @@ def cmd_meetings_update(args):
     """Update a meeting."""
     _require(args.meeting_id, "meeting_id")
     body = {}
+    settings = {}
     if args.topic:
         body["topic"] = args.topic
     if args.start:
         body["start_time"] = args.start
     if args.duration:
         body["duration"] = args.duration
+    if args.join_before_host is not None:
+        settings["join_before_host"] = args.join_before_host
+    if args.auto_recording:
+        settings["auto_recording"] = args.auto_recording
+    if args.waiting_room is not None:
+        settings["waiting_room"] = args.waiting_room
+    if settings:
+        body["settings"] = settings
     if not body:
         print("Nothing to update.")
         return
@@ -236,8 +245,44 @@ def cmd_recordings_get(args):
     print(json.dumps(data, indent=2))
 
 
+def cmd_recordings_download(args):
+    """Download recording files for a meeting."""
+    _require(args.meeting_id, "meeting_id")
+    data = api("GET", f"/meetings/{args.meeting_id}/recordings")
+    files = data.get("recording_files", [])
+    if not files:
+        print("No recording files found.")
+        return
+
+    topic = data.get("topic", "recording").replace(" ", "_").replace("/", "_")
+    out_dir = args.output or "."
+    os.makedirs(out_dir, exist_ok=True)
+    token = get_token()
+
+    for f in files:
+        url = f.get("download_url")
+        if not url:
+            continue
+        rec_type = f.get("recording_type", "unknown")
+        ext = f.get("file_extension", "mp4").lower()
+        fname = f"{topic}_{rec_type}_{f.get('id', 'file')}.{ext}"
+        fpath = os.path.join(out_dir, fname)
+
+        print(f"Downloading {rec_type} → {fpath} ...")
+        resp = requests.get(f"{url}?access_token={token}", stream=True, timeout=60)
+        resp.raise_for_status()
+        with open(fpath, "wb") as out:
+            for chunk in resp.iter_content(chunk_size=8192):
+                out.write(chunk)
+        size_mb = os.path.getsize(fpath) / (1024 * 1024)
+        print(f"  ✓ {size_mb:.1f} MB")
+
+    print(f"\nDownloaded {len(files)} file(s).")
+
+
 def cmd_recordings_delete(args):
     """Delete a recording."""
+    _require(args.meeting_id, "meeting_id")
     api("DELETE", f"/meetings/{args.meeting_id}/recordings")
     print(f"Recordings for meeting {args.meeting_id} deleted.")
 
@@ -347,6 +392,9 @@ def main():
     p.add_argument("--topic")
     p.add_argument("--start")
     p.add_argument("--duration", type=int)
+    p.add_argument("--join-before-host", dest="join_before_host", type=lambda x: x.lower() in ("true", "1", "yes"), default=None)
+    p.add_argument("--auto-recording", dest="auto_recording", choices=["local", "cloud", "none"])
+    p.add_argument("--waiting-room", dest="waiting_room", type=lambda x: x.lower() in ("true", "1", "yes"), default=None)
 
     # Recordings
     recordings = sub.add_parser("recordings")
@@ -356,6 +404,9 @@ def main():
     p.add_argument("--to", dest="to_date")
     p = rsub.add_parser("get")
     p.add_argument("meeting_id")
+    p = rsub.add_parser("download")
+    p.add_argument("meeting_id")
+    p.add_argument("--output", "-o", help="Output directory (default: current)")
     p = rsub.add_parser("delete")
     p.add_argument("meeting_id")
 
@@ -396,6 +447,7 @@ def main():
         ("meetings", "update"): cmd_meetings_update,
         ("recordings", "list"): cmd_recordings_list,
         ("recordings", "get"): cmd_recordings_get,
+        ("recordings", "download"): cmd_recordings_download,
         ("recordings", "delete"): cmd_recordings_delete,
         ("users", "me"): cmd_users_me,
         ("users", "list"): cmd_users_list,

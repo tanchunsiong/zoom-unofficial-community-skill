@@ -71,6 +71,10 @@ python3 scripts/zoom.py recordings list --from "2026-01-01" --to "2026-01-31"
 # Get recording details
 python3 scripts/zoom.py recordings get <meeting_id>
 
+# Download recording files
+python3 scripts/zoom.py recordings download <meeting_id>
+python3 scripts/zoom.py recordings download <meeting_id> --output ~/Downloads
+
 # Delete a recording
 python3 scripts/zoom.py recordings delete <meeting_id>
 ```
