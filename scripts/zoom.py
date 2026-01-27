@@ -16,6 +16,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 try:
     import requests
@@ -366,6 +367,82 @@ def cmd_phone_calls(args):
         print(f"  [{ts}] {direction} {number} ({duration}s)")
 
 
+# === Meeting Summaries (AI Companion) ===
+
+def cmd_summary_get(args):
+    """Get AI meeting summary for a specific meeting."""
+    _require(args.meeting_id, "meeting_id (use meeting UUID from 'summary list')")
+    encoded_id = quote(quote(args.meeting_id, safe=""), safe="")
+    data = api("GET", f"/meetings/{encoded_id}/meeting_summary")
+    print(f"Meeting: {data.get('meeting_topic', 'Untitled')}")
+    print(f"Date: {data.get('meeting_start_time', '?')} — {data.get('meeting_end_time', '?')}")
+    print(f"Host: {data.get('meeting_host_email', '?')}")
+    if data.get("summary_title"):
+        print(f"Title: {data['summary_title']}")
+    print()
+
+    # Try multiple possible content locations
+    summary = data.get("meeting_summary", data.get("summary", {}))
+    if isinstance(summary, str):
+        print(summary)
+        return
+    if isinstance(summary, dict):
+        overview = summary.get("summary_overview", summary.get("overview", ""))
+        if overview:
+            print("=== Summary ===")
+            print(overview)
+            print()
+        details = summary.get("summary_details", summary.get("details", []))
+        if details:
+            print("=== Details ===")
+            for d in details if isinstance(details, list) else [details]:
+                if isinstance(d, dict):
+                    label = d.get("label", "")
+                    content = d.get("content", "")
+                    if label:
+                        print(f"\n**{label}**")
+                    print(content)
+                else:
+                    print(d)
+            print()
+        next_steps = summary.get("next_steps", [])
+        if next_steps:
+            print("=== Next Steps ===")
+            for step in next_steps:
+                print(f"  • {step}")
+        if not overview and not details and not next_steps:
+            print("(Summary metadata exists but no content available — meeting may have been too short)")
+
+    # Also check top-level summary_details
+    top_details = data.get("summary_details", [])
+    if top_details:
+        print("=== Details ===")
+        for d in top_details:
+            print(d)
+
+    if not summary and not top_details:
+        print("(No summary content available)")
+
+
+def cmd_summary_list(args):
+    """List AI meeting summaries."""
+    params = {"page_size": 20}
+    if args.from_date:
+        params["from"] = args.from_date
+    if args.to_date:
+        params["to"] = args.to_date
+    data = api("GET", "/meetings/meeting_summaries", params=params)
+    summaries = data.get("summaries", [])
+    if not summaries:
+        print("No meeting summaries found.")
+        return
+    for s in summaries:
+        uuid = s.get("meeting_uuid", "?")
+        topic = s.get("meeting_topic", "Untitled")
+        start = s.get("meeting_start_time", "?")
+        print(f"  [{uuid}] {topic} ({start})")
+
+
 # === Main ===
 
 def main():
@@ -430,6 +507,15 @@ def main():
     p.add_argument("message")
     csub.add_parser("contacts")
 
+    # Summaries (AI Companion)
+    summaries = sub.add_parser("summary")
+    ssub = summaries.add_subparsers(dest="action", required=True)
+    p = ssub.add_parser("get")
+    p.add_argument("meeting_id")
+    p = ssub.add_parser("list")
+    p.add_argument("--from", dest="from_date")
+    p.add_argument("--to", dest="to_date")
+
     # Phone
     phone = sub.add_parser("phone")
     psub = phone.add_subparsers(dest="action", required=True)
@@ -456,6 +542,8 @@ def main():
         ("chat", "send"): cmd_chat_send,
         ("chat", "dm"): cmd_chat_dm,
         ("chat", "contacts"): cmd_chat_contacts,
+        ("summary", "get"): cmd_summary_get,
+        ("summary", "list"): cmd_summary_list,
         ("phone", "calls"): cmd_phone_calls,
     }
 

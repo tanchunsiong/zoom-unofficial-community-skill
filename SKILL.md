@@ -79,6 +79,17 @@ python3 scripts/zoom.py recordings download <meeting_id> --output ~/Downloads
 python3 scripts/zoom.py recordings delete <meeting_id>
 ```
 
+### AI Meeting Summary (AI Companion)
+
+```bash
+# List meeting summaries
+python3 scripts/zoom.py summary list
+python3 scripts/zoom.py summary list --from "2026-01-01" --to "2026-01-31"
+
+# Get AI summary for a specific meeting
+python3 scripts/zoom.py summary get <meeting_id>
+```
+
 ### Users
 
 ```bash
@@ -127,6 +138,7 @@ Only add the scopes you need — each command group requires specific scopes:
 | `recordings list/get/delete` | `recording:read:admin`, `recording:write:admin` |
 | `chat channels/messages/send/dm` | `chat_channel:read:admin`, `chat_message:read:admin`, `chat_message:write:admin` |
 | `chat contacts` | `contact:read:admin` |
+| `summary list/get` | `meeting_summary:read:admin` |
 | `phone calls` | `phone:read:admin` (requires Zoom Phone enabled on account) |
 
 **If you get a scope error**, go to https://marketplace.zoom.us/ → your app → Scopes, and add the missing scope listed in the error message.
