@@ -27,7 +27,7 @@ except ImportError:
 BASE_URL = "https://api.zoom.us/v2"
 TOKEN_URL = "https://zoom.us/oauth/token"
 TOKEN_CACHE = "/tmp/zoom_token.json"
-ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", ".env")
+ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env")
 
 
 def _user_id():
@@ -148,6 +148,87 @@ def cmd_meetings_list(args):
         if join:
             print(f"    Join: {join}")
         print()
+
+
+def cmd_meetings_live(args):
+    """List currently live/in-progress meetings via the Dashboard API."""
+    params = {"type": "live", "page_size": 30}
+    data = api("GET", "/metrics/meetings", params=params)
+    meetings = data.get("meetings", [])
+    if not meetings:
+        print("No live meetings right now.")
+        return
+    print(f"🔴 {len(meetings)} live meeting(s):\n")
+    for m in meetings:
+        topic = m.get("topic", "Untitled")
+        mid = m.get("id", "?")
+        uuid = m.get("uuid", "?")
+        host = m.get("host", m.get("email", "?"))
+        participants = m.get("participants", 0)
+        start = m.get("start_time", "?")
+        duration = m.get("duration", "?")
+        has_video = "✅" if m.get("has_video", False) else "❌"
+        has_screen = "✅" if m.get("has_screen_share", False) else "❌"
+        has_recording = "✅" if m.get("has_recording", False) else "❌"
+        print(f"  [{mid}] {topic}")
+        print(f"    UUID: {uuid}")
+        print(f"    Host: {host}")
+        print(f"    Participants: {participants} | Started: {start} | Duration: {duration}")
+        print(f"    Video: {has_video} | Screen share: {has_screen} | Recording: {has_recording}")
+        print()
+
+
+def _get_live_meeting_host_user_id(meeting_id):
+    """Get the host's participant_user_id for a live meeting."""
+    data = api("GET", "/metrics/meetings", params={"type": "live", "page_size": 30})
+    for m in data.get("meetings", []):
+        if str(m.get("id")) == str(meeting_id):
+            host_email = m.get("email")
+            if not host_email:
+                print("ERROR: Could not find host email for this meeting", file=sys.stderr)
+                sys.exit(1)
+            user = api("GET", f"/users/{host_email}")
+            return user.get("id")
+    print(f"ERROR: Meeting {meeting_id} is not currently live", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_meetings_rtms_start(args):
+    """Start RTMS for a live meeting."""
+    _load_env()
+    _require(args.meeting_id, "meeting_id")
+    rtms_client_id = os.environ.get("ZOOM_RTMS_CLIENT_ID")
+    if not rtms_client_id:
+        print("ERROR: ZOOM_RTMS_CLIENT_ID must be set (Client ID of your RTMS Marketplace app)", file=sys.stderr)
+        sys.exit(1)
+    host_user_id = _get_live_meeting_host_user_id(args.meeting_id)
+    api("PATCH", f"/live_meetings/{args.meeting_id}/rtms_app/status", json={
+        "action": "start",
+        "settings": {
+            "participant_user_id": host_user_id,
+            "client_id": rtms_client_id,
+        }
+    })
+    print(f"✅ RTMS started for meeting {args.meeting_id} (host: {host_user_id})")
+
+
+def cmd_meetings_rtms_stop(args):
+    """Stop RTMS for a live meeting."""
+    _load_env()
+    _require(args.meeting_id, "meeting_id")
+    rtms_client_id = os.environ.get("ZOOM_RTMS_CLIENT_ID")
+    if not rtms_client_id:
+        print("ERROR: ZOOM_RTMS_CLIENT_ID must be set (Client ID of your RTMS Marketplace app)", file=sys.stderr)
+        sys.exit(1)
+    host_user_id = _get_live_meeting_host_user_id(args.meeting_id)
+    api("PATCH", f"/live_meetings/{args.meeting_id}/rtms_app/status", json={
+        "action": "stop",
+        "settings": {
+            "participant_user_id": host_user_id,
+            "client_id": rtms_client_id,
+        }
+    })
+    print(f"🛑 RTMS stopped for meeting {args.meeting_id} (host: {host_user_id})")
 
 
 def cmd_meetings_get(args):
@@ -279,6 +360,102 @@ def cmd_recordings_download(args):
         print(f"  ✓ {size_mb:.1f} MB")
 
     print(f"\nDownloaded {len(files)} file(s).")
+
+
+def cmd_recordings_download_transcript(args):
+    """Download transcript files for a meeting recording."""
+    _require(args.meeting_id, "meeting_id")
+    data = api("GET", f"/meetings/{args.meeting_id}/recordings")
+    files = data.get("recording_files", [])
+    transcript_files = [f for f in files if f.get("recording_type") in ("audio_transcript", "chat_file", "timeline", "closed_caption")]
+    # Also check for separate transcript files
+    transcript_files += [f for f in files if f.get("file_extension", "").lower() in ("vtt", "txt", "srt")]
+
+    if not transcript_files:
+        print("No transcript files found in recording.")
+        return
+
+    topic = data.get("topic", "recording").replace(" ", "_").replace("/", "_")
+    out_dir = args.output or "."
+    os.makedirs(out_dir, exist_ok=True)
+    token = get_token()
+
+    downloaded = 0
+    for f in transcript_files:
+        url = f.get("download_url")
+        if not url:
+            continue
+        rec_type = f.get("recording_type", "transcript")
+        ext = f.get("file_extension", "vtt").lower()
+        fname = f"{topic}_{rec_type}_{f.get('id', 'file')}.{ext}"
+        fpath = os.path.join(out_dir, fname)
+
+        print(f"Downloading {rec_type} → {fpath} ...")
+        resp = requests.get(f"{url}?access_token={token}", stream=True, timeout=60)
+        resp.raise_for_status()
+        with open(fpath, "wb") as out:
+            for chunk in resp.iter_content(chunk_size=8192):
+                out.write(chunk)
+        size_kb = os.path.getsize(fpath) / 1024
+        print(f"  ✓ {size_kb:.1f} KB")
+        downloaded += 1
+
+    print(f"\nDownloaded {downloaded} transcript file(s).")
+
+
+def cmd_recordings_download_summary(args):
+    """Download AI Companion meeting summary and save to file."""
+    _require(args.meeting_id, "meeting_id (use meeting UUID)")
+    encoded_id = quote(quote(args.meeting_id, safe=""), safe="")
+    data = api("GET", f"/meetings/{encoded_id}/meeting_summary")
+
+    topic = data.get("meeting_topic", "meeting").replace(" ", "_").replace("/", "_")
+    out_dir = args.output or "."
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Build markdown content
+    lines = []
+    lines.append(f"# {data.get('meeting_topic', 'Meeting Summary')}")
+    lines.append(f"")
+    lines.append(f"- **Date:** {data.get('meeting_start_time', '?')} — {data.get('meeting_end_time', '?')}")
+    lines.append(f"- **Host:** {data.get('meeting_host_email', '?')}")
+    if data.get("summary_title"):
+        lines.append(f"- **Title:** {data['summary_title']}")
+    lines.append("")
+
+    summary = data.get("meeting_summary", data.get("summary", {}))
+    if isinstance(summary, str):
+        lines.append(summary)
+    elif isinstance(summary, dict):
+        overview = summary.get("summary_overview", summary.get("overview", ""))
+        if overview:
+            lines.append("## Summary")
+            lines.append(overview)
+            lines.append("")
+        details = summary.get("summary_details", summary.get("details", []))
+        if details:
+            lines.append("## Details")
+            for d in details if isinstance(details, list) else [details]:
+                if isinstance(d, dict):
+                    label = d.get("label", "")
+                    content = d.get("content", "")
+                    if label:
+                        lines.append(f"### {label}")
+                    lines.append(content)
+                    lines.append("")
+                else:
+                    lines.append(str(d))
+        next_steps = summary.get("next_steps", [])
+        if next_steps:
+            lines.append("## Next Steps")
+            for step in next_steps:
+                lines.append(f"- {step}")
+
+    fname = f"{topic}_ai_summary.md"
+    fpath = os.path.join(out_dir, fname)
+    with open(fpath, "w") as f:
+        f.write("\n".join(lines))
+    print(f"✅ AI summary saved to {fpath}")
 
 
 def cmd_recordings_delete(args):
@@ -454,6 +631,11 @@ def main():
     msub = meetings.add_subparsers(dest="action", required=True)
 
     msub.add_parser("list")
+    msub.add_parser("live")
+    p = msub.add_parser("rtms-start")
+    p.add_argument("meeting_id")
+    p = msub.add_parser("rtms-stop")
+    p.add_argument("meeting_id")
     p = msub.add_parser("get")
     p.add_argument("meeting_id")
     p = msub.add_parser("create")
@@ -483,6 +665,12 @@ def main():
     p.add_argument("meeting_id")
     p = rsub.add_parser("download")
     p.add_argument("meeting_id")
+    p.add_argument("--output", "-o", help="Output directory (default: current)")
+    p = rsub.add_parser("download-transcript")
+    p.add_argument("meeting_id")
+    p.add_argument("--output", "-o", help="Output directory (default: current)")
+    p = rsub.add_parser("download-summary")
+    p.add_argument("meeting_id", help="Meeting UUID")
     p.add_argument("--output", "-o", help="Output directory (default: current)")
     p = rsub.add_parser("delete")
     p.add_argument("meeting_id")
@@ -527,6 +715,9 @@ def main():
 
     cmd_map = {
         ("meetings", "list"): cmd_meetings_list,
+        ("meetings", "live"): cmd_meetings_live,
+        ("meetings", "rtms-start"): cmd_meetings_rtms_start,
+        ("meetings", "rtms-stop"): cmd_meetings_rtms_stop,
         ("meetings", "get"): cmd_meetings_get,
         ("meetings", "create"): cmd_meetings_create,
         ("meetings", "delete"): cmd_meetings_delete,
@@ -534,6 +725,8 @@ def main():
         ("recordings", "list"): cmd_recordings_list,
         ("recordings", "get"): cmd_recordings_get,
         ("recordings", "download"): cmd_recordings_download,
+        ("recordings", "download-transcript"): cmd_recordings_download_transcript,
+        ("recordings", "download-summary"): cmd_recordings_download_summary,
         ("recordings", "delete"): cmd_recordings_delete,
         ("users", "me"): cmd_users_me,
         ("users", "list"): cmd_users_list,
